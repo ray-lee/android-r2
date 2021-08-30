@@ -7,17 +7,24 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.res.ResourcesCompat
+import io.reactivex.disposables.CompositeDisposable
 import org.librarysimplified.r2.api.SR2ColorScheme
 import org.librarysimplified.r2.api.SR2Command
 import org.librarysimplified.r2.api.SR2ControllerType
+import org.librarysimplified.r2.api.SR2Event
 import org.librarysimplified.r2.api.SR2Font
 import org.librarysimplified.r2.api.SR2PublisherCSS.SR2_PUBLISHER_DEFAULT_CSS_DISABLED
 import org.librarysimplified.r2.api.SR2PublisherCSS.SR2_PUBLISHER_DEFAULT_CSS_ENABLED
 import org.librarysimplified.r2.api.SR2Theme
 import org.librarysimplified.r2.views.R
+import org.slf4j.LoggerFactory
 
 internal class SR2SettingsDialog private constructor() {
   companion object {
+    private val logger = LoggerFactory.getLogger(SR2SettingsDialog::class.java)
+
+    const val TEXT_SIZE_STEP = 0.1
+
     private fun updateTheme(
       controller: SR2ControllerType,
       updater: (SR2Theme) -> SR2Theme
@@ -30,9 +37,14 @@ internal class SR2SettingsDialog private constructor() {
       context: Context,
       controller: SR2ControllerType
     ): SR2SettingsDialog {
+      val eventSubscriptions = CompositeDisposable()
+
       val dialog =
         AlertDialog.Builder(context)
           .setView(R.layout.sr2_settings)
+          .setOnDismissListener {
+            eventSubscriptions.dispose()
+          }
           .create()
 
       dialog.show()
@@ -84,14 +96,42 @@ internal class SR2SettingsDialog private constructor() {
         this.updateTheme(controller) { it.copy(colorScheme = SR2ColorScheme.DARK_TEXT_ON_SEPIA) }
       }
       setTextLarger.setOnClickListener {
-        this.updateTheme(controller) { it.copy(textSize = SR2Theme.sizeConstrain(it.textSize + 0.1)) }
+        this.updateTheme(controller) { it.copy(textSize = SR2Theme.sizeConstrain(it.textSize + TEXT_SIZE_STEP)) }
       }
       setTextReset.setOnClickListener {
         this.updateTheme(controller) { it.copy(textSize = 1.0) }
       }
       setTextSmaller.setOnClickListener {
-        this.updateTheme(controller) { it.copy(textSize = SR2Theme.sizeConstrain(it.textSize - 0.1)) }
+        this.updateTheme(controller) { it.copy(textSize = SR2Theme.sizeConstrain(it.textSize - TEXT_SIZE_STEP)) }
       }
+
+      fun updateSetText() {
+        val themeNow = controller.themeNow()
+
+        if (themeNow.isTextSizeMinimized) {
+          setTextSmaller.isEnabled = false
+          setTextSmaller.alpha = 0.25f
+        } else {
+          setTextSmaller.isEnabled = true
+          setTextSmaller.alpha = 1.0f
+        }
+
+        if (themeNow.isTextSizeMaximized) {
+          setTextLarger.isEnabled = false
+          setTextLarger.alpha = 0.25f
+        } else {
+          setTextLarger.isEnabled = true
+          setTextLarger.alpha = 1.0f
+        }
+      }
+
+      updateSetText()
+
+      eventSubscriptions.add(
+        controller.events.ofType(SR2Event.SR2ThemeChanged::class.java).subscribe {
+          updateSetText()
+        }
+      )
 
       publisherCSS.isChecked =
         when (controller.themeNow().publisherCSS) {
